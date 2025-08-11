@@ -1,0 +1,40 @@
+name: my_ecommerce_app
+description: "A new Flutter project."
+publish_to: 'none' 
+version: 1.0.0+1
+
+environment:
+  # Humne yahan version thoda neeche kiya hai taaki purane packages bhi chal jaayein
+  # Aap isse waisa ka waisa bhi chhod sakte hain
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  #------------------ YAHI EK BADLAAV HUMNE KIYA HAI ----------------------
+  # Humne Flutter ko bataya ki humein Supabase ki zaroorat hai
+  supabase_flutter: ^2.5.8  # Humne version number bhi likh diya hai
+  provider: ^6.1.5
+  image_picker: ^1.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+
+flutter:
+
+  uses-material-design: true
+
+  # assets:
+  #   - images/a_dot_burr.jpeg
+  #   - images/a_dot_ham.jpeg
+
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
