@@ -1,114 +1,165 @@
 // lib/profile/create_buyer_profile_screen.dart
+
 import 'package:flutter/material.dart';
-import 'package:my_ecommerce_app/home_screen.dart';
 import 'package:my_ecommerce_app/main.dart';
-import 'package:my_ecommerce_app/utils/indian_states.dart'; 
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreateBuyerProfileScreen extends StatefulWidget {
   const CreateBuyerProfileScreen({super.key});
-
   @override
-  State<CreateBuyerProfileScreen> createState() => _CreateBuyerProfileScreenState();
+  State<CreateBuyerProfileScreen> createState() =>
+      _CreateBuyerProfileScreenState();
 }
 
 class _CreateBuyerProfileScreenState extends State<CreateBuyerProfileScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _addressLine1Controller = TextEditingController();
-  final _localityController = TextEditingController();
-  final _landmarkController = TextEditingController();
-  final _cityController = TextEditingController();
-  final _pincodeController = TextEditingController();
-  
-  String? _selectedState;
-  var _isLoading = false;
+  final _controllers = {
+    'full_name': TextEditingController(),
+    'phone': TextEditingController(),
+    'shipping_address_line1': TextEditingController(),
+    'shipping_address_line2': TextEditingController(),
+    'shipping_city': TextEditingController(),
+    'shipping_state': TextEditingController(),
+    'shipping_pincode': TextEditingController(),
+  };
+
+  bool _isLoading = false;
 
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     setState(() => _isLoading = true);
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
 
     try {
-      // --- LOGIC MEIN BADLAAV YAHAN HAI ---
-      await supabase.from('profiles').update({
-        'full_name': _nameController.text.trim(),
-        'contact_number': _phoneController.text.trim(),
-        'shipping_address_line1': _addressLine1Controller.text.trim(),
-        'shipping_locality': _localityController.text.trim(),
-        'shipping_landmark': _landmarkController.text.trim(),
-        'shipping_city': _cityController.text.trim(),
-        'shipping_state': _selectedState,
-        'shipping_pincode': _pincodeController.text.trim(),
-        // BADLAAV 1: Hum ab specific buyer profile flag ko update kar rahe hain
+      final updates = <String, dynamic>{
         'is_buyer_profile_complete': true,
-      }).eq('id', user.id);
+      };
+
+      // Lint-free for loop
+      for (final entry in _controllers.entries) {
+        updates[entry.key] = entry.value.text.trim();
+      }
+
+      await supabase
+          .from('profiles')
+          .update(updates)
+          .eq('id', supabase.auth.currentUser!.id);
 
       if (mounted) {
-        // Form save hone ke baad user ko vapas home screen par bhej do
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-          (route) => false,
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile saved!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.of(context).pop();
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: ${e.message}")),
         );
       }
-    } catch (e) {
-       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving profile: ${e.toString()}')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-  
+
+  @override
+  void dispose() {
+    // Lint-free for loop
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 24, bottom: 8),
+      child: Text(
+        title,
+        style: Theme.of(context)
+            .textTheme
+            .titleLarge
+            ?.copyWith(fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  Widget _buildTextField(String key, String label, {bool isOptional = false}) {
+    return TextFormField(
+      controller: _controllers[key],
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: isOptional ? 'Optional' : '',
+        border: const OutlineInputBorder(),
+      ),
+      validator: (v) {
+        if (!isOptional && v!.trim().isEmpty) return '$label is required';
+        return null;
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // UI mein koi badlaav nahi hai
     return Scaffold(
-      appBar: AppBar(title: const Text('Complete Your Profile')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Create Your Buyer Account', style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 20),
-              Text("Personal Details", style: Theme.of(context).textTheme.titleMedium),
-              const Divider(),
-              TextFormField(controller: _nameController, decoration: const InputDecoration(labelText: 'Full Name'), validator: (v) => v!.isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-              TextFormField(controller: _phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Contact Number'), validator: (v) => v!.isEmpty ? 'Required' : null),
-              const SizedBox(height: 20),
-              Text("Default Shipping Address", style: Theme.of(context).textTheme.titleMedium),
-              const Divider(),
-              TextFormField(controller: _addressLine1Controller, decoration: const InputDecoration(labelText: 'House No., Building Name, Street'), validator: (v) => v!.isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-              TextFormField(controller: _localityController, decoration: const InputDecoration(labelText: 'Area, Locality'), validator: (v) => v!.isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-              TextFormField(controller: _landmarkController, decoration: const InputDecoration(labelText: 'Landmark (e.g. Near City Hospital)')),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: TextFormField(controller: _cityController, decoration: const InputDecoration(labelText: 'City'), validator: (v) => v!.isEmpty ? 'Required' : null)),
-                  const SizedBox(width: 10),
-                  Expanded(child: TextFormField(controller: _pincodeController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Pincode'), validator: (v) => v!.isEmpty ? 'Required' : null)),
-                ],
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedState,
-                hint: const Text('Select State'),
-                onChanged: (val) => setState(() => _selectedState = val),
-                items: indianStates.map((state) => DropdownMenuItem(value: state, child: Text(state))).toList(),
-                validator: (v) => v == null ? 'Please select a state' : null,
-              ),
-              const SizedBox(height: 30),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _saveProfile,
-                child: _isLoading ? const CircularProgressIndicator() : const Text('Save & Start Shopping'),
-              )
-            ],
+      appBar: AppBar(
+        title: const Text('Setup Your Buyer Profile'),
+        backgroundColor: const Color(0xFF267873),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFFE0F7F5), // Light background for the form
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildSectionHeader('Personal Information'),
+                _buildTextField('full_name', 'Your Full Name'),
+                const SizedBox(height: 12),
+                _buildTextField('phone', 'Your Contact Number'),
+                _buildSectionHeader('Default Shipping Address'),
+                _buildTextField(
+                    'shipping_address_line1', 'House No, Building, Street'),
+                const SizedBox(height: 12),
+                _buildTextField('shipping_address_line2', 'Area, Landmark',
+                    isOptional: true),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _buildTextField('shipping_city', 'City')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildTextField('shipping_state', 'State')),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _buildTextField('shipping_pincode', 'Pincode'),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _saveProfile,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor:
+                        const Color(0xFF267873), // button ka background
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text(
+                          'Save & Continue',
+                          style: TextStyle(
+                            color: Colors.white, // text white ho jayega
+                            fontFamily: 'Poppins',
+                          ),
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
