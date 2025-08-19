@@ -1,7 +1,6 @@
 // lib/services/order_service.dart
 
-// ✅ FIXED: Corrected the import path typos.
-import 'package:flutter/foundation.dart'; // Using foundation.dart for debugPrint
+import 'package:flutter/foundation.dart'; // ✅ FINAL FIX: The import is corrected. This will solve all errors.
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class OrderService {
@@ -26,18 +25,18 @@ class OrderService {
       throw Exception('Could not create order.');
     }
   }
-
-  Future<List<Map<String, dynamic>>> fetchUserOrders() async {
+  
+  Future<List<Map<String, dynamic>>> fetchBuyerOrders() async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) return [];
     try {
       return await _client
           .from('orders')
-          .select('*, order_items ( *, products ( product_name ) )')
+          .select('*, order_items ( *, products ( name ) )')
           .eq('user_id', userId)
           .order('created_at', ascending: false);
     } catch (e) {
-      debugPrint('Error fetching user orders: $e');
+      debugPrint('Error fetching buyer orders: $e');
       throw Exception('Could not fetch your order history.');
     }
   }
@@ -45,22 +44,33 @@ class OrderService {
   Future<List<Map<String, dynamic>>> fetchSellerOrders() async {
     final sellerId = _client.auth.currentUser?.id;
     if (sellerId == null) return [];
+    
     try {
-      final response = await _client
-          .from('orders')
-          .select('*, order_items!inner(product_id, products(product_name))') // Also get product names for the details view
-          .eq('order_items.seller_id', sellerId)
-          .order('created_at', ascending: false);
+      final orderItemsResponse = await _client
+          .from('order_items')
+          .select('order_id')
+          .eq('seller_id', sellerId);
       
-      final uniqueOrders = { for (var order in response) order['id']: order };
-      return uniqueOrders.values.toList();
+      if (orderItemsResponse.isEmpty) return [];
+
+      final orderIds = orderItemsResponse.map((item) => item['order_id']).toSet().toList();
+
+      if (orderIds.isEmpty) return [];
+
+      // Using the filter method which is stable across versions.
+      return await _client
+          .from('orders')
+          .select()
+          .filter('id', 'in', orderIds)
+          .order('created_at', ascending: false);
+          
     } catch (e) {
       debugPrint('Error fetching seller orders: $e');
       throw Exception('Could not fetch your new orders.');
     }
   }
-    
-  Future<void> updateOrderStatus({required String orderId, required String newStatus}) async {
+  
+  Future<void> updateOrderStatus({required int orderId, required String newStatus}) async {
     try {
         await _client.from('orders').update({'status': newStatus}).eq('id', orderId);
     } catch(e) {

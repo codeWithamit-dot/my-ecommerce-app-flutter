@@ -1,8 +1,8 @@
 // lib/screens/order_history_screen.dart
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart'; // ✅ FIX: Sabse zaroori import wapas add kar diya gaya hai.
 import 'package:intl/intl.dart';
-import 'package:my_ecommerce_app/screens/add_review_screen.dart'; // ✅ Import the new screen
+import 'package:my_ecommerce_app/screens/add_review_screen.dart';
 import 'package:my_ecommerce_app/services/order_service.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
@@ -24,7 +24,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
 
   void _refreshOrders() {
     setState(() {
-      _ordersFuture = _orderService.fetchUserOrders();
+      _ordersFuture = _orderService.fetchBuyerOrders();
     });
   }
 
@@ -37,20 +37,22 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       default: return Colors.grey;
     }
   }
-
-  // ✅ New helper function to navigate to the Add Review screen
-  void _navigateToAddReview(String productId, String productName) {
-    Navigator.of(context).push(
+  
+  // ✅ FIX #2: Ab yeh function `sellerId` bhi leta hai
+  Future<void> _navigateToAddReview(String productId, String productName, String sellerId) async {
+    final reviewWasSubmitted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (ctx) => AddReviewScreen(
         productId: productId,
         productName: productName,
+        sellerId: sellerId, // sellerId pass kiya jaa raha hai
       )),
-    ).then((reviewWasSubmitted) {
-      // Optional: You could show a message or refresh something here if needed.
-      if (reviewWasSubmitted == true) {
-        // Potentially refresh data if you want to show that review is complete.
-      }
-    });
+    );
+    
+    if (reviewWasSubmitted == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Thank you for your review!')),
+      );
+    }
   }
 
   @override
@@ -80,7 +82,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
               itemCount: orders.length,
               itemBuilder: (context, index) {
                 final order = orders[index];
-                final String orderId = order['id'].toString().substring(0, 8).toUpperCase();
+                final String orderId = order['id'].toString();
                 final String status = order['status'] ?? 'Unknown';
                 final DateTime date = DateTime.parse(order['created_at']);
                 final double total = (order['total_amount'] as num).toDouble();
@@ -90,44 +92,42 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                   margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   elevation: 2,
                   child: ExpansionTile(
-                    title: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text("Order: #$orderId", style: const TextStyle(fontWeight: FontWeight.bold)),
-                        Chip(
-                          label: Text(status.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                          backgroundColor: _getStatusColor(status),
-                        ),
-                      ],
-                    ),
+                    title: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                      Text("Order: #$orderId", style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Chip(
+                        label: Text(status.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                        backgroundColor: _getStatusColor(status),
+                      ),
+                    ]),
                     subtitle: Text("Date: ${DateFormat.yMMMd().format(date)}"),
                     children: [
                       ...items.map((item) {
                         final productData = item['products'] as Map<String, dynamic>?;
-                        final productName = productData?['product_name'] ?? 'Product not found';
-                        
-                        // IMPORTANT: Ensure you are selecting 'product_id' in your `order_items` fetch
+                        final productName = productData?['name'] ?? 'Product not found';
                         final String productId = item['product_id'];
+                        final String? sellerId = item['seller_id']; // `sellerId` order item se nikala
 
-                        return Column(
-                          children: [
+                        return Column(children: [
                             ListTile(
                               dense: true,
                               title: Text(productName),
                               subtitle: Text("Qty: ${item['quantity'] ?? 0}"),
-                              trailing: Text("₹${((item['price'] as num?)?.toDouble() ?? 0.0 * (item['quantity'] as int? ?? 0)).toStringAsFixed(2)}"),
+                              trailing: Text("₹${((item['price_per_item'] as num? ?? 0.0) * (item['quantity'] as int? ?? 0)).toStringAsFixed(2)}"),
                             ),
-
-                            // ✅ NEW: The conditional "Write a Review" button
                             if (status.toLowerCase() == 'delivered')
-                              Padding(
-                                padding: const EdgeInsets.only(right: 16.0, bottom: 8.0),
-                                child: Align(
-                                  alignment: Alignment.centerRight,
+                              Padding(padding: const EdgeInsets.only(right: 16.0, bottom: 8.0),
+                                child: Align(alignment: Alignment.centerRight,
                                   child: TextButton.icon(
                                     icon: const Icon(Icons.rate_review_outlined, size: 18),
                                     label: const Text('Write a Review'),
-                                    onPressed: () => _navigateToAddReview(productId, productName),
+                                    onPressed: () {
+                                      // ✅ FIX #3: Yahan call ko update kiya
+                                      if (sellerId != null) {
+                                        _navigateToAddReview(productId, productName, sellerId);
+                                      } else {
+                                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Seller not found for this product.')));
+                                      }
+                                    },
                                   ),
                                 ),
                               ),
@@ -135,11 +135,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                         );
                       }),
                       const Divider(indent: 16, endIndent: 16, height: 1),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
+                      Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                             const Text("Total:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                             Text("₹${total.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                           ],

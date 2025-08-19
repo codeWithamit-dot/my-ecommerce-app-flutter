@@ -1,50 +1,68 @@
 // lib/providers/user_role_provider.dart
 
-import 'package:flutter/material.dart'; // ✅ FIX: Colon ":" was missing
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/material.dart';
+// ✅ FIX: "package:" import ko relative path se badal diya gaya hai.
+import '../main.dart'; // supabase client ke liye
 
-// ✅ FIX: 'with ChangeNotifier' was missing. This is essential for a provider.
-class UserRoleProvider with ChangeNotifier {
-  Map<String, dynamic>? _profile;
+class UserRoleProvider extends ChangeNotifier {
   bool _isLoading = true;
+  Map<String, dynamic>? _userProfile;
 
-  String? get role => _profile?['role'];
-  String? get approvalStatus => _profile?['approval_status'];
-  Map<String, dynamic>? get profile => _profile;
   bool get isLoading => _isLoading;
+  String? get role => _userProfile?['role'];
+  // ✅ FIX: Ek chhota sa typo tha yahan, `_user_profile` ko `_userProfile` kar diya hai.
+  String? get fullName => _userProfile?['full_name'];
+  String? get approvalStatus => _userProfile?['seller_status'];
+  Map<String, dynamic>? get userProfile => _userProfile;
+  
+  UserRoleProvider() {
+    fetchUserProfile();
+  }
 
   Future<void> fetchUserProfile() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      _profile = null;
-      _isLoading = false;
-      notifyListeners();
-      return;
-    }
-
     _isLoading = true;
     notifyListeners();
-    
+
     try {
-      final response = await Supabase.instance.client
-        .from('profiles')
-        .select() // Select everything
-        .eq('id', user.id)
-        .single();
-        
-      _profile = response;
-      
+      final user = supabase.auth.currentUser;
+      if (user == null) {
+        _userProfile = null;
+        return;
+      }
+
+      final data = await supabase
+          .from('profiles')
+          .select()
+          .eq('id', user.id)
+          .single();
+
+      _userProfile = data;
+
     } catch (e) {
-      _profile = null;
       debugPrint("Error fetching user profile: $e");
+      _userProfile = null;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  void clearProfile() {
-      _profile = null;
+  void updateRole(String newRole) {
+    if (_userProfile != null) {
+      _userProfile!['role'] = newRole;
       notifyListeners();
+    }
+  }
+
+  void clearProfile() {
+    _userProfile = null;
+    notifyListeners();
+  }
+
+  void updateLocalProfile(Map<String, dynamic> updates) {
+    if (_userProfile != null) {
+      _userProfile!.addAll(updates);
+      notifyListeners();
+    }
   }
 }

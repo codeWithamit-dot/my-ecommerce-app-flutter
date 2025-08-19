@@ -1,18 +1,26 @@
 // lib/providers/app_mode_provider.dart
+
 import 'package:flutter/material.dart';
 
-// App ke do modes honge
 enum AppMode { buying, selling }
 
-class AppModeProvider with ChangeNotifier {
-  AppMode _currentMode = AppMode.buying; // By default, user buyer hota hai
+class AppModeProvider extends ChangeNotifier {
+  AppMode _mode = AppMode.buying;
 
-  AppMode get mode => _currentMode;
+  AppMode get mode => _mode;
 
   void switchTo(AppMode newMode) {
-    if (_currentMode != newMode) {
-      _currentMode = newMode;
-      notifyListeners(); // UI ko update karne ke liye signal bhejta hai
+    if (_mode != newMode) {
+      _mode = newMode;
+      notifyListeners();
     }
+  }
+
+  // ✅ FIX: Logout ke liye naya function yahan add kiya gaya hai
+  // Yeh app mode ko wapas default (buying) par set kar dega.
+  void resetMode() {
+    _mode = AppMode.buying;
+    // Yahan notifyListeners() call karne ki zaroorat nahi hai
+    // kyunki iske baad waise bhi logout ho jaayega aur screen badal jayegi.
   }
 }

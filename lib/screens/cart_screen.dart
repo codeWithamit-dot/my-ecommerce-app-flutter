@@ -1,8 +1,9 @@
 // lib/screens/cart_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:my_ecommerce_app/model/cart_item_with_product.dart';
 import 'package:my_ecommerce_app/services/cart_service.dart';
-import 'checkout_screen.dart';
+import 'package:my_ecommerce_app/screens/checkout_screen.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -14,11 +15,6 @@ class CartScreen extends StatefulWidget {
 class _CartScreenState extends State<CartScreen> {
   final CartService _cartService = CartService();
   late Future<List<CartItemWithProduct>> _cartFuture;
-  
-  final TextEditingController _couponController = TextEditingController();
-  double _discountPercent = 0;
-  // This bool will be controlled by the FutureBuilder to enable/disable the checkout button.
-  bool _isCartValidForCheckout = true; 
 
   @override
   void initState() {
@@ -28,72 +24,24 @@ class _CartScreenState extends State<CartScreen> {
   
   void _refreshCart() {
     setState(() {
-      _cartFuture = _cartService.getCartItemsWithProductDetails();
-      // Reset coupon on refresh
-      _couponController.clear();
-      _discountPercent = 0;
+      _cartFuture = _cartService.fetchCartItems();
     });
   }
 
-  // --- WIDGET BUILDERS ---
-
-  Widget _buildCartItem(CartItemWithProduct item, {required VoidCallback onRemove}) {
-    final bool isOutOfStock = !item.isInStock;
-    
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      elevation: 2,
-      color: isOutOfStock ? Colors.grey[200] : Colors.white,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: (item.imageUrl != null && item.imageUrl!.isNotEmpty) 
-                ? Image.network(item.imageUrl!, width: 50, height: 50, fit: BoxFit.cover)
-                : Container(width: 50, height: 50, color: Colors.grey[200], child: const Icon(Icons.image_not_supported)),
-            ),
-            title: Text(
-              item.productName,
-              style: TextStyle(
-                fontWeight: FontWeight.w500,
-                decoration: isOutOfStock ? TextDecoration.lineThrough : TextDecoration.none,
-                color: isOutOfStock ? Colors.grey[600] : Colors.black87,
-              ),
-            ),
-            subtitle: Text("₹${item.price} x ${item.quantity}"),
-            trailing: IconButton(
-              icon: Icon(Icons.delete_outline, color: Colors.red[700]),
-              onPressed: onRemove,
-              tooltip: 'Remove item',
-            ),
-          ),
-          if (isOutOfStock)
-            Container(
-              decoration: BoxDecoration(
-                // ✅ FIXED: Replaced deprecated withOpacity with withAlpha
-                color: Colors.black.withAlpha(128),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Center(child: Text('OUT OF STOCK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-            )
-        ],
-      ),
-    );
+  void _updateQuantity(String cartItemId, int newQuantity) async {
+    await _cartService.updateItemQuantity(cartItemId, newQuantity);
+    _refreshCart();
   }
   
   @override
-  void dispose() {
-    _couponController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Cart')),
+      appBar: AppBar(
+        title: const Text('My Shopping Cart'),
+        backgroundColor: const Color(0xFF267873),
+        foregroundColor: Colors.white,
+      ),
+      backgroundColor: const Color(0xFFE0F7F5),
       body: RefreshIndicator(
         onRefresh: () async => _refreshCart(),
         child: FutureBuilder<List<CartItemWithProduct>>(
@@ -107,38 +55,25 @@ class _CartScreenState extends State<CartScreen> {
             }
             final cartItems = snapshot.data ?? [];
             if (cartItems.isEmpty) {
-              return const Center(child: Text("Your cart is empty."));
+              return const Center(child: Text("Your cart is empty. Start shopping!", style: TextStyle(fontSize: 16)));
             }
 
             final double totalPrice = cartItems.fold(0.0, (sum, item) => sum + (item.price * item.quantity));
-            final double discountedTotal = totalPrice * (1 - _discountPercent / 100);
+            final bool isCartValidForCheckout = cartItems.every((item) => item.isInStock);
             
-            _isCartValidForCheckout = cartItems.every((item) => item.isInStock);
-            
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.only(top: 8),
-                      itemCount: cartItems.length,
-                      itemBuilder: (context, index) {
-                        return _buildCartItem(
-                          cartItems[index],
-                          onRemove: () async {
-                             await _cartService.removeItemFromCart(cartItems[index].id);
-                             _refreshCart();
-                          }
-                        );
-                      },
-                    ),
+            return Column(
+              children: [
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(8.0),
+                    itemCount: cartItems.length,
+                    itemBuilder: (context, index) {
+                      return _buildCartItemCard(cartItems[index]);
+                    },
                   ),
-                  const SizedBox(height: 10),
-                  _buildCheckoutSection(totalPrice, discountedTotal),
-                ],
-              ),
+                ),
+                _buildCheckoutSection(context, totalPrice, isCartValidForCheckout),
+              ],
             );
           },
         ),
@@ -146,87 +81,94 @@ class _CartScreenState extends State<CartScreen> {
     );
   }
   
-  Widget _buildCheckoutSection(double totalPrice, double discountedTotal) {
-    // ✅ FIXED: Apply coupon logic moved here and renamed.
-    void applyCoupon() {
-        if (_couponController.text.trim().toLowerCase() == "save10") {
-            setState(() => _discountPercent = 10);
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Coupon 'SAVE10' applied!")));
-        } else {
-            setState(() => _discountPercent = 0);
-             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid coupon.")));
-        }
-        // Hide keyboard after applying
-        FocusScope.of(context).unfocus();
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
+  Widget _buildCartItemCard(CartItemWithProduct item) {
+    final bool isOutOfStock = !item.isInStock;
+    
+    return Opacity(
+      opacity: isOutOfStock ? 0.6 : 1.0,
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(item.imageUrl, width: 80, height: 80, fit: BoxFit.cover,
+                      errorBuilder: (_,__,___) => const Icon(Icons.broken_image, size: 40))
+                  ),
+                  if (isOutOfStock)
+                    Container(
+                      width: 80, height: 80,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withAlpha(150), 
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Center(child: Text('OUT OF\nSTOCK', 
+                        textAlign: TextAlign.center, 
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10))),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(item.productName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16,
+                      decoration: isOutOfStock ? TextDecoration.lineThrough : TextDecoration.none), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 4),
+                    Text("₹${item.price.toStringAsFixed(2)}", style: const TextStyle(fontSize: 15, color: Colors.green)),
+                ])),
+              Row(children: [
+                IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.red), 
+                  onPressed: isOutOfStock ? null : () => _updateQuantity(item.id, item.quantity - 1), splashRadius: 20),
+                Text(item.quantity.toString(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.add_circle_outline, color: Colors.green), 
+                  onPressed: isOutOfStock ? null : () => _updateQuantity(item.id, item.quantity + 1), splashRadius: 20),
+              ]),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+  
+  Widget _buildCheckoutSection(BuildContext context, double totalPrice, bool isCartValid) {
+    return Container(
+      padding: const EdgeInsets.all(16).copyWith(bottom: MediaQuery.of(context).padding.bottom > 0 ? MediaQuery.of(context).padding.bottom : 16),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
         boxShadow: [
             BoxShadow(
-              color: Colors.black.withAlpha(50),
-              blurRadius: 10
+              color: Color.fromRGBO(0, 0, 0, 0.1),
+              blurRadius: 10,
+              spreadRadius: 1
             )
         ]
       ),
-      child: Column(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // ✅ FIXED: Coupon UI restored here.
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _couponController,
-                  decoration: InputDecoration(
-                    hintText: 'Enter coupon code',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    filled: true,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-                ),
-                onPressed: applyCoupon, // Calls the local function
-                child: const Text('Apply'),
-              ),
-            ],
-          ),
-
-          const Divider(height: 24),
-
-          // Display Total
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text("Total:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              Text("₹${discountedTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green)),
-            ],
-          ),
-          
-          const SizedBox(height: 10),
-
-          // Checkout Button
+          Flexible(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text("Total Price", style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+              FittedBox(fit: BoxFit.scaleDown,
+                // ✅ FINAL FIX: Iske aage `const` laga diya hai
+                child: Text("₹${totalPrice.toStringAsFixed(2)}", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)))])),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 50),
-              backgroundColor: _isCartValidForCheckout ? Theme.of(context).primaryColor : Colors.grey[500],
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 15),
+              backgroundColor: isCartValid ? Theme.of(context).primaryColor : Colors.grey, 
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
             ),
-            onPressed: _isCartValidForCheckout
-              ? () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CheckoutScreen()))
-              : null, 
-            child: Text(
-              _isCartValidForCheckout ? "Proceed to Checkout" : "Remove out of stock items",
-              style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold),
-            ),
+            onPressed: isCartValid ? () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CheckoutScreen())) : null,
+            child: Text(isCartValid ? "Checkout" : "Unavailable", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

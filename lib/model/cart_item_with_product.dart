@@ -1,41 +1,43 @@
 // lib/model/cart_item_with_product.dart
 
-// This class combines the cart item data with its corresponding product data.
 class CartItemWithProduct {
-  final int id; // The id of the cart entry itself
-  final String userId;
+  final String id;
   final String productId;
-  final int quantity; // The quantity in the cart
+  final int quantity;
+  
   final String productName;
-  final String? imageUrl;
+  final String imageUrl;
   final double price;
-  final int stockQuantity; // The available stock for the product
+  final int stockQuantity;
+  final String sellerId; // ✅ FIX: Sabse zaroori `sellerId` yahan add kiya gaya hai.
 
   CartItemWithProduct({
     required this.id,
-    required this.userId,
     required this.productId,
     required this.quantity,
     required this.productName,
-    this.imageUrl,
+    required this.imageUrl,
     required this.price,
     required this.stockQuantity,
+    required this.sellerId,
   });
-
-  // A helper to check if the item is currently in stock
-  bool get isInStock => stockQuantity > 0 && quantity <= stockQuantity;
+  
+  bool get isInStock => stockQuantity > 0;
 
   factory CartItemWithProduct.fromMap(Map<String, dynamic> map) {
-    final productData = map['products'] as Map<String, dynamic>? ?? {};
+    // Ab `products` ke bajaye `live_products` se join ho raha hai
+    final productData = map['products'] as Map<String, dynamic>?; 
+    final imageUrls = productData?['image_urls'] as List?;
+
     return CartItemWithProduct(
       id: map['id'],
-      userId: map['user_id'],
       productId: map['product_id'],
-      quantity: map['quantity'],
-      productName: productData['product_name'] ?? 'Product Not Found',
-      imageUrl: productData['image_url'],
-      price: (map['price'] as num?)?.toDouble() ?? 0.0,
-      stockQuantity: productData['stock_quantity'] as int? ?? 0,
+      quantity: map['quantity'] as int,
+      productName: productData?['name'] ?? 'Product not available',
+      imageUrl: (imageUrls != null && imageUrls.isNotEmpty) ? imageUrls.first as String : '',
+      price: (productData?['price'] as num?)?.toDouble() ?? 0.0,
+      stockQuantity: productData?['stock_quantity'] as int? ?? 0,
+      sellerId: productData?['seller_id'] ?? '', // ✅ `sellerId` ko bhi data se nikala
     );
   }
 }

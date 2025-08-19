@@ -2,13 +2,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:my_ecommerce_app/main.dart';
+import 'package:my_ecommerce_app/providers/app_mode_provider.dart';
 import 'package:my_ecommerce_app/providers/user_role_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreateSellerProfileScreen extends StatefulWidget {
   const CreateSellerProfileScreen({super.key});
-
   @override
   State<CreateSellerProfileScreen> createState() =>
       _CreateSellerProfileScreenState();
@@ -16,55 +16,73 @@ class CreateSellerProfileScreen extends StatefulWidget {
 
 class _CreateSellerProfileScreenState extends State<CreateSellerProfileScreen> {
   final _formKey = GlobalKey<FormState>();
+  
   final _controllers = {
-    'full_name': TextEditingController(), 'phone': TextEditingController(),
-    'store_name': TextEditingController(), 'about_business': TextEditingController(),
-    'pickup_address_line1': TextEditingController(), 'pickup_address_line2': TextEditingController(),
-    'pickup_city': TextEditingController(), 'pickup_state': TextEditingController(),
-    'pickup_pincode': TextEditingController(), 'gstin': TextEditingController(),
-    'pan_number': TextEditingController(), 'bank_account_holder_name': TextEditingController(),
-    'bank_account_number': TextEditingController(), 'bank_ifsc_code': TextEditingController(),
+    'full_name': TextEditingController(),
+    'contact_number': TextEditingController(),
+    'business_name': TextEditingController(),
+    'about_business': TextEditingController(),
+    'business_address_line1': TextEditingController(),
+    'business_locality': TextEditingController(),
+    'business_landmark': TextEditingController(),
+    'business_city': TextEditingController(),
+    'business_state': TextEditingController(),
+    'business_pincode': TextEditingController(),
+    'gstin': TextEditingController(),
+    'pan_number': TextEditingController(),
+    'bank_account_holder_name': TextEditingController(),
+    'bank_account_number': TextEditingController(),
+    'bank_ifsc_code': TextEditingController(),
   };
+
   bool _isLoading = false;
 
-  // ✅ THIS FUNCTION IS NOW 100% CORRECT AND SAFE
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final profile = context.read<UserRoleProvider>().userProfile;
+      if (profile != null) {
+        _controllers['full_name']?.text = profile['full_name'] ?? '';
+      }
+    });
+  }
+
   Future<void> _saveProfile() async {
-    // Return early if the form is not valid
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
+    if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-
-    // ✅ FIX: Save references to context-dependent objects BEFORE the async gap
-    final userProfileProvider = context.read<UserRoleProvider>();
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-
+    
     try {
-      final updates = <String, dynamic>{'is_seller_profile_complete': true};
+      final updates = <String, dynamic>{
+        'is_seller_profile_complete': true,
+        'seller_status': 'pending', // Yahan hum status ko 'pending' bhej rahe hain
+      };
+      
       for (final entry in _controllers.entries) {
         updates[entry.key] = entry.value.text.trim();
       }
-
-      // --- Async Gap ---
-      await supabase
-          .from('profiles')
-          .update(updates)
-          .eq('id', supabase.auth.currentUser!.id);
-
-      // --- Async Gap ---
-      await userProfileProvider.fetchUserProfile();
       
-      // ✅ FIX: After ALL awaits, we MUST check if the widget is still mounted
+      await supabase.from('profiles').update(updates).eq('id', supabase.auth.currentUser!.id);
+      
       if (!mounted) return;
 
-      // Now we use the saved references, which is the safest practice
+      final userProfileProvider = context.read<UserRoleProvider>();
+      final appModeProvider = context.read<AppModeProvider>();
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
+
+      // ✅ FIX: `fetchUserProfile()` se network call karne ke bajaye,
+      // Provider ko locally update kar do. Yeh zyada fast hai.
+      userProfileProvider.updateLocalProfile(updates);
+      
+      appModeProvider.switchTo(AppMode.selling);
+      
       scaffoldMessenger.showSnackBar(const SnackBar(
         content: Text('Seller profile submitted for review!'),
         backgroundColor: Colors.green,
       ));
-      navigator.pop();
+
+      navigator.pushNamedAndRemoveUntil('/home', (route) => false);
 
     } on PostgrestException catch (e) {
       if (mounted) {
@@ -84,7 +102,7 @@ class _CreateSellerProfileScreenState extends State<CreateSellerProfileScreen> {
     }
     super.dispose();
   }
-
+  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -116,8 +134,8 @@ class _CreateSellerProfileScreenState extends State<CreateSellerProfileScreen> {
                       foregroundColor: Colors.white,
                     ),
                     child: _isLoading
-                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2,))
-                        : const Text('Save & Submit for Review'),
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Text('Save & Submit for Review', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   ),
                 ],
               ),
@@ -127,17 +145,18 @@ class _CreateSellerProfileScreenState extends State<CreateSellerProfileScreen> {
       ),
     );
   }
-
+  
   Widget _buildTextField(String key, String label, {bool isOptional = false, int maxLines = 1}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 16.0),
       child: TextFormField(
         controller: _controllers[key],
+        maxLines: maxLines,
         decoration: InputDecoration(
           labelText: label, hintText: isOptional ? 'Optional' : '',
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFF267873), width: 2)),
         ),
-        maxLines: maxLines,
         validator: (v) {
           if (!isOptional && v!.trim().isEmpty) return '$label is required';
           return null;
@@ -145,7 +164,7 @@ class _CreateSellerProfileScreenState extends State<CreateSellerProfileScreen> {
       ),
     );
   }
-  
+
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 16),
@@ -155,28 +174,29 @@ class _CreateSellerProfileScreenState extends State<CreateSellerProfileScreen> {
       ),
     );
   }
-
+  
   Widget _buildSellerForm() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionHeader('Basic Information'),
         _buildTextField('full_name', 'Your Full Name'),
-        _buildTextField('phone', 'Your Contact Number'),
+        _buildTextField('contact_number', 'Your Contact Number'),
         _buildSectionHeader('Business Details'),
-        _buildTextField('store_name', 'Store / Business Name'),
+        _buildTextField('business_name', 'Store / Business Name'),
         _buildTextField('about_business', 'About Your Business', maxLines: 3),
         _buildSectionHeader('Pickup Address'),
-        _buildTextField('pickup_address_line1', 'Address Line 1'),
-        _buildTextField('pickup_address_line2', 'Address Line 2 (Optional)', isOptional: true),
+        _buildTextField('business_address_line1', 'Address (Building, Street, etc.)'),
+        _buildTextField('business_locality', 'Locality / Area'),
+        _buildTextField('business_landmark', 'Landmark (Optional)', isOptional: true),
         Row(children: [
-          Expanded(child: _buildTextField('pickup_city', 'City')),
+          Expanded(child: _buildTextField('business_city', 'City')),
           const SizedBox(width: 12),
-          Expanded(child: _buildTextField('pickup_state', 'State')),
+          Expanded(child: _buildTextField('business_state', 'State')),
         ]),
-        _buildTextField('pickup_pincode', 'Pincode'),
+        _buildTextField('business_pincode', 'Pincode'),
         _buildSectionHeader('Tax & Bank Details'),
-        _buildTextField('gstin', 'GSTIN', isOptional: true),
+        _buildTextField('gstin', 'GSTIN (Optional)', isOptional: true),
         _buildTextField('pan_number', 'PAN Card Number'),
         _buildTextField('bank_account_holder_name', 'Account Holder Name'),
         _buildTextField('bank_account_number', 'Bank Account Number'),

@@ -2,28 +2,36 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:my_ecommerce_app/model/analytics_data.dart'; // पैकेज-रिलेटिव इम्पोर्ट का उपयोग करें
+import '../model/analytics_data.dart'; // Sahi relative import
 
 class AnalyticsService {
-  final SupabaseClient client;
+  final SupabaseClient _client = Supabase.instance.client;
 
-  AnalyticsService(this.client);
-
-  Future<AnalyticsData?> fetchAnalytics() async {
+  Future<AnalyticsData?> fetchAnalytics(String? userRole) async {
     try {
-      // ✅ ठीक किया गया: .execute() हटा दिया गया है
-      final data = await client.rpc('fetch_analytics');
+      final Map<String, dynamic> data;
+      
+      // Agar user seller hai, to seller wala function call karo
+      if (userRole == 'seller') {
+        data = await _client.rpc('get_seller_dashboard_analytics').single();
+      } 
+      // Agar user admin hai (future ke liye), to admin wala
+      else if (userRole == 'admin') {
+        data = await _client.rpc('fetch_analytics').single();
+      }
+      // Agar buyer hai ya koi role nahi, to kuch mat lao
+      else {
+        return AnalyticsData.empty(); // Ek khali data object
+      }
+      
+      // Data ko model mein convert karo
+      return AnalyticsData.fromMap(data);
 
-      if (data != null) {
-        // RPC का डेटा सीधे Map के रूप में आता है
-        return AnalyticsData.fromMap(data as Map<String, dynamic>);
-      }
-      return null;
-    } on PostgrestException catch (error) {
+    } catch (e) {
       if (kDebugMode) {
-        debugPrint("Analytics fetch error: ${error.message}");
+        debugPrint("Analytics fetch error: $e");
       }
-      return null;
+      return AnalyticsData.empty();
     }
   }
 }
