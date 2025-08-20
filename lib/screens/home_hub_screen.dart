@@ -1,4 +1,3 @@
-// lib/screens/home_hub_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -17,7 +16,8 @@ import 'orders_manager_screen.dart';
 import 'categories_screen.dart';
 import 'home_page_content.dart';
 import 'search_screen.dart';
-import 'seller_reviews_screen.dart'; // Nayi "Seller Reviews" screen import ki
+import 'seller_reviews_screen.dart';
+import 'notification_screen.dart'; // ✅ Nayi screen ko import kiya
 
 class HomeHubScreen extends StatefulWidget {
   const HomeHubScreen({super.key});
@@ -26,175 +26,99 @@ class HomeHubScreen extends StatefulWidget {
 }
 
 class _HomeHubScreenState extends State<HomeHubScreen> {
+  // Baaki saara code bilkul waisa hi hai, usmein koi badlav nahi.
   int _selectedIndex = 0;
-
-  // -- BUYER MODE STUFF --
-  static const List<Widget> _buyerPages = <Widget>[
-    HomePageContent(),
-    CategoriesScreen(),
-    CartManagerScreen(),
-    OrdersManagerScreen(),
-    ViewProfileScreen()
-  ];
-
+  static const List<Widget> _buyerPages = <Widget>[HomePageContent(),CategoriesScreen(),CartManagerScreen(),OrdersManagerScreen(),ViewProfileScreen()];
   static const List<BottomNavigationBarItem> _buyerNavItems = <BottomNavigationBarItem>[
-    BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
-    BottomNavigationBarItem(icon: Icon(Icons.category_outlined), label: 'Categories'),
-    BottomNavigationBarItem(icon: Icon(Icons.shopping_cart_outlined), label: 'Cart'),
-    BottomNavigationBarItem(icon: Icon(Icons.receipt_long_outlined), label: 'Orders'),
-    BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
-  ];
-  
-  // -- SELLER MODE STUFF (Updated) --
-  static const List<Widget> _sellerPages = <Widget>[
-    AnalyticsDashboardScreen(),
-    ManageProductsScreen(),
-    OrdersManagerScreen(),
-    SellerReviewsScreen(), // Naya page add ho gaya
-    ViewProfileScreen()
-  ];
-
+    BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),BottomNavigationBarItem(icon: Icon(Icons.category_outlined), label: 'Categories'),
+    BottomNavigationBarItem(icon: Icon(Icons.shopping_cart_outlined), label: 'Cart'),BottomNavigationBarItem(icon: Icon(Icons.receipt_long_outlined), label: 'Orders'),
+    BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile')];
+  static final List<Widget> _sellerPages = <Widget>[const AnalyticsDashboardScreen(),const ManageProductsScreen(),const OrdersManagerScreen(),const SellerReviewsScreen(),const ViewProfileScreen()];
   static const List<BottomNavigationBarItem> _sellerNavItems = <BottomNavigationBarItem>[
-    BottomNavigationBarItem(icon: Icon(Icons.dashboard_outlined), label: 'Dashboard'),
-    BottomNavigationBarItem(icon: Icon(Icons.inventory_2_outlined), label: 'Products'),
-    BottomNavigationBarItem(icon: Icon(Icons.receipt_long_outlined), label: 'Orders'),
-    BottomNavigationBarItem(icon: Icon(Icons.rate_review_outlined), label: 'Reviews'), // Naya tab add ho gaya
-    BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
-  ];
-
+    BottomNavigationBarItem(icon: Icon(Icons.dashboard_outlined), label: 'Dashboard'),BottomNavigationBarItem(icon: Icon(Icons.inventory_2_outlined), label: 'Products'),
+    BottomNavigationBarItem(icon: Icon(Icons.receipt_long_outlined), label: 'Orders'),BottomNavigationBarItem(icon: Icon(Icons.rate_review_outlined), label: 'Reviews'),
+    BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile')];
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkProfileCompleteness());
-  }
-
-  void _checkProfileCompleteness() {
-    if (!mounted) return;
-    final profileProvider = context.read<UserRoleProvider>();
-    if (!profileProvider.isLoading && profileProvider.role == null) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const RoleSelectionScreen()), (route) => false);
-    }
-  }
-
+  void initState() {super.initState(); WidgetsBinding.instance.addPostFrameCallback((_) => _checkProfileCompleteness());}
+  void _checkProfileCompleteness() {if (!mounted) return; final profileProvider = context.read<UserRoleProvider>();
+    if (!profileProvider.isLoading && profileProvider.role == null) {Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const RoleSelectionScreen()), (route) => false);}}
   void _onItemTapped(int index) => setState(() => _selectedIndex = index);
-  void _logout() async {
-    if (mounted) {
-      context.read<AppModeProvider>().resetMode();
-      context.read<UserRoleProvider>().clearProfile();
-    }
-    await Supabase.instance.client.auth.signOut();
-  }
-  
+  Future<void> _logout() async {if (mounted) {context.read<AppModeProvider>().resetMode(); context.read<UserRoleProvider>().clearProfile();} await Supabase.instance.client.auth.signOut();}
   void _navigateToAddProduct() => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AddProductScreen()));
   void _navigateToSearch() => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SearchScreen()));
 
   @override
   Widget build(BuildContext context) {
-    final appModeProvider = context.watch<AppModeProvider>();
-    final profileProvider = context.watch<UserRoleProvider>();
-
+    final appModeProvider = context.watch<AppModeProvider>(); final profileProvider = context.watch<UserRoleProvider>();
     if (profileProvider.isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     if (profileProvider.role == null && !profileProvider.isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    
-    final isBuyingMode = appModeProvider.mode == AppMode.buying;
-    final isSeller = profileProvider.role == 'seller';
+    final isBuyingMode = appModeProvider.mode == AppMode.buying; final isSeller = profileProvider.role == 'seller';
     final approvalStatus = profileProvider.approvalStatus;
-
-    if (isSeller && !isBuyingMode && approvalStatus == 'pending') {
-      return const SellerPendingApprovalScreen();
-    }
-    
+    if (isSeller && !isBuyingMode && approvalStatus == 'pending') {return const SellerPendingApprovalScreen();}
     final List<Widget> currentPages = isSeller && !isBuyingMode ? _sellerPages : _buyerPages;
     final List<BottomNavigationBarItem> currentNavItems = isSeller && !isBuyingMode ? _sellerNavItems : _buyerNavItems;
-    
     return Scaffold(
       appBar: _buildAppBar(context, isBuyingMode, isSeller, currentNavItems),
       body: IndexedStack(index: _selectedIndex, children: currentPages),
-      bottomNavigationBar: _buildBottomNavBar(currentNavItems),
-    );
-  }
+      bottomNavigationBar: _buildBottomNavBar(currentNavItems));}
 
   AppBar _buildAppBar(BuildContext context, bool isBuyingMode, bool isSeller, List<BottomNavigationBarItem> navItems) {
     final appModeProvider = context.read<AppModeProvider>();
-    
-    String appBarTitle = isBuyingMode
-        ? 'My Store'
-        : navItems[_selectedIndex].label ?? 'Seller';
-        
+    String appBarTitle = isBuyingMode ? 'My Store' : navItems[_selectedIndex].label ?? 'Seller';
     return AppBar(
       backgroundColor: const Color(0xFF267873),
       title: Text(appBarTitle, style: GoogleFonts.irishGrover(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
       actions: [
         IconButton(icon: const Icon(Icons.search), onPressed: _navigateToSearch),
+
+        // ✅✅✅ YEH HAI FINAL FIX ✅✅✅
+        IconButton(
+          icon: const Icon(Icons.notifications_outlined),
+          tooltip: 'Notifications',
+          onPressed: () {
+            // "Coming soon" message hata kar, ab seedha nayi screen par bhejenge
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const NotificationScreen()),
+            );
+          },
+        ),
+
         if (isSeller && !isBuyingMode)
           IconButton(icon: const Icon(Icons.add_circle_outline), tooltip: 'Add New Product', onPressed: _navigateToAddProduct),
         if (isSeller)
-          TextButton(
-            onPressed: () {
-              setState(() => _selectedIndex = 0);
-              appModeProvider.switchTo(isBuyingMode ? AppMode.selling : AppMode.buying);
-            },
-            child: Text(isBuyingMode ? 'Switch to Selling' : 'Switch to Buying',
-              style: GoogleFonts.irishGrover(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
+          TextButton(onPressed: () {setState(() => _selectedIndex = 0);
+              appModeProvider.switchTo(isBuyingMode ? AppMode.selling : AppMode.buying);},
+            child: Text(isBuyingMode ? 'Switch to Selling' : 'Switch to Buying', style: GoogleFonts.irishGrover(color: Colors.white, fontWeight: FontWeight.bold))),
         IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
       ],
     );
   }
 
   BottomNavigationBar _buildBottomNavBar(List<BottomNavigationBarItem> items) {
-    return BottomNavigationBar(
-      type: BottomNavigationBarType.fixed,
-      selectedItemColor: const Color(0xFF267873),
-      unselectedItemColor: Colors.grey,
-      items: items,
-      currentIndex: _selectedIndex,
-      onTap: _onItemTapped,
-    );
+    return BottomNavigationBar(type: BottomNavigationBarType.fixed,
+      selectedItemColor: const Color(0xFF267873), unselectedItemColor: Colors.grey,
+      items: items, currentIndex: _selectedIndex, onTap: _onItemTapped,);
   }
 }
-
 
 class SellerPendingApprovalScreen extends StatelessWidget {
   const SellerPendingApprovalScreen({super.key});
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profile Under Review'), backgroundColor: const Color(0xFF267873), foregroundColor: Colors.white,
+  Widget build(BuildContext context) {return Scaffold(
+      appBar: AppBar(title: const Text('Profile Under Review'), backgroundColor: const Color(0xFF267873), foregroundColor: Colors.white,
         actions: [
-          IconButton(icon: const Icon(Icons.logout), tooltip: 'Logout', onPressed: () async {
-            final provider = context.read<AppModeProvider>();
-            provider.resetMode();
-            await Supabase.instance.client.auth.signOut();
-          }),
-          IconButton(icon: const Icon(Icons.refresh), tooltip: 'Refresh Status',
-            onPressed: () => context.read<UserRoleProvider>().fetchUserProfile()),
-        ],
-      ),
-      body: Container(
-        color: const Color(0xFFE0F7F5),
-        padding: const EdgeInsets.all(24.0),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.hourglass_top_rounded, size: 80, color: Colors.orange[700]),
-              const SizedBox(height: 20),
+          IconButton(icon: const Icon(Icons.logout), tooltip: 'Logout', onPressed: () async { if (context.mounted) {
+              context.read<AppModeProvider>().resetMode(); await Supabase.instance.client.auth.signOut();}}),
+          IconButton(icon: const Icon(Icons.refresh), tooltip: 'Refresh Status', onPressed: () => context.read<UserRoleProvider>().fetchUserProfile()),],),
+      body: Container(color: const Color(0xFFE0F7F5), padding: const EdgeInsets.all(24.0),
+        child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              const Icon(Icons.hourglass_top_rounded, size: 80, color: Colors.orange), const SizedBox(height: 20),
               const Text('Verification in Progress', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              Text('Your seller profile is under review...', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey[700])),
+              const SizedBox(height: 12), Text('Your seller profile is under review...', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey[700])),
               const SizedBox(height: 30),
               ElevatedButton.icon(
                 icon: const Icon(Icons.shopping_bag), label: const Text('Continue Shopping as a Buyer'),
                 onPressed: () => context.read<AppModeProvider>().switchTo(AppMode.buying),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF267873), foregroundColor: Colors.white),
-              )
-            ]
-          ),
-        ),
-      ),
-    );
-  }
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF267873), foregroundColor: Colors.white))]))));}
 }

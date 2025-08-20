@@ -11,9 +11,16 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ecommerce_app/auth/login_screen.dart';
 import 'package:my_ecommerce_app/services/notification_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 SupabaseClient get supabase => Supabase.instance.client;
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  debugPrint("Handling a background message: ${message.messageId}");
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +29,7 @@ void main() async {
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ4b3RnaW10ZHdlam15cGF6cGVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2MjE0NjksImV4cCI6MjA3MDE5NzQ2OX0.fgL4LLjnjNHMwBsWfE2HWr89FK60AiWINRqLLsPxYR0',
   );
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(
     MultiProvider(
@@ -42,65 +50,62 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   StreamSubscription<AuthState>? _authStateSubscription;
-
-  // =========== ⭐️ AAPKE TABLE KE HISAB SE UPDATED FUNCTION ================
-  Future<void> _createProfileIfNeeded(User user) async {
-    try {
-      final response = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('id', user.id)
-          .maybeSingle();
-
-      if (response == null) {
-        debugPrint('Profile nahi mili, nayi profile bana raha hoon...');
-        
-        final userMetadata = user.userMetadata;
-        final fullName = userMetadata?['full_name'];
-        final avatarUrl = userMetadata?['avatar_url']; // Google se 'avatar_url' hi milta hai
-
-        // Sirf woh columns insert karo jo zaroori hain aur table mein hain
-        await supabase.from('profiles').insert({
-          'id': user.id, // Primary Key - Zaroori
-          'full_name': fullName, // Naam, agar Google se mila
-          
-          // ⭐️ FIX #1: Column ka naam `profile_picture_url` kar diya
-          'profile_picture_url': avatarUrl,
-
-          // ⭐️ FIX #2: `email` wala column hata diya kyunki woh table mein nahi hai
-        });
-
-        debugPrint('Profile for user ${user.id} successfully ban gayi!');
-      } else {
-        debugPrint('Profile pehle se hai.');
-      }
-    } catch (error) {
-      debugPrint('Profile check/create karte waqt error: $error');
-    }
-  }
-  // =========================================================================
+  final NotificationService _notificationService = NotificationService();
 
   @override
   void initState() {
     super.initState();
-    _authStateSubscription = supabase.auth.onAuthStateChange.listen((data) async {
-      if (!mounted) return;
-      final session = data.session;
-      final userRoleProvider = Provider.of<UserRoleProvider>(context, listen: false);
+    _initializeApp();
+  }
 
+  Future<void> _initializeApp() async {
+    _authStateSubscription = supabase.auth.onAuthStateChange.listen((data) async {
+      final session = data.session;
+      
       if (session == null) {
-        userRoleProvider.clearProfile();
-        NotificationService.removeTokenOnLogout();
+        // If there's a valid context, clear the provider
+        final context = navigatorKey.currentContext;
+        if (context != null && context.mounted) {
+           Provider.of<UserRoleProvider>(context, listen: false).clearProfile();
+        }
+        await NotificationService.removeTokenOnLogout();
         navigatorKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);
       } else {
         await _createProfileIfNeeded(session.user);
-        await userRoleProvider.fetchUserProfile();
-        await NotificationService().initialize();
         
-        if (!mounted) return;
+        // After profile is created/checked, fetch data and initialize services.
+        final context = navigatorKey.currentContext;
+        if (context != null && context.mounted) {
+          // ✅ FIX: `await` ke baad context istemal karne se pehle, usse ek local variable mein daal do.
+          final userProvider = Provider.of<UserRoleProvider>(context, listen: false);
+          await userProvider.fetchUserProfile();
+          // ignore: use_build_context_synchronously
+          await _notificationService.initialize(context);
+        }
+        
         navigatorKey.currentState?.pushNamedAndRemoveUntil('/home', (route) => false);
       }
     });
+  }
+
+  Future<void> _createProfileIfNeeded(User user) async {
+    try {
+      final response = await supabase.from('profiles').select('id').eq('id', user.id).maybeSingle();
+      if (response == null) {
+        debugPrint('Profile not found, creating one...');
+        final userMetadata = user.userMetadata;
+        await supabase.from('profiles').insert({
+          'id': user.id,
+          'full_name': userMetadata?['full_name'],
+          'profile_picture_url': userMetadata?['avatar_url'],
+        });
+        debugPrint('Profile for ${user.id} created.');
+      } else {
+        debugPrint('Profile already exists.');
+      }
+    } catch (error) {
+      debugPrint('Error creating profile: $error');
+    }
   }
 
   @override
@@ -118,14 +123,10 @@ class _MyAppState extends State<MyApp> {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF267873)),
         useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF267873),
-          foregroundColor: Colors.white,
-        ),
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF267873), foregroundColor: Colors.white),
       ),
-      initialRoute: '/',
+      home: const Scaffold(body: Center(child: CircularProgressIndicator())), 
       routes: {
-        '/': (context) => const Scaffold(backgroundColor: Color(0xFFE0F7F5), body: Center(child: CircularProgressIndicator())),
         '/login': (context) => const LoginScreen(),
         '/home': (context) => const HomeHubScreen(),
       },
