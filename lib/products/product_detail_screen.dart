@@ -1,31 +1,36 @@
-// lib/products/product_detail_screen.dart
+// Path: lib/products/product_detail_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
+import '../model/coupon_model.dart';
+import '../services/coupon_service.dart';
 import '../screens/add_review_screen.dart';
+import '../services/cart_service.dart';
 import '../services/review_service.dart';
-import '../screens/seller_store_screen.dart';
-import '../services/wishlist_service.dart'; // ✅ FINAL FIX: Import path ko theek kar diya gaya hai
+import '../screens/seller_store_screen.dart'; // ✅ FIX
+import '../services/wishlist_service.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final String productId;
   final bool isFromLiveProducts;
 
-  const ProductDetailScreen({
-    super.key,
-    required this.productId,
-    this.isFromLiveProducts = false,
-  });
+  const ProductDetailScreen({super.key, required this.productId, this.isFromLiveProducts = false});
 
   @override
   State<ProductDetailScreen> createState() => _ProductDetailScreenState();
 }
 
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
-  late Future<Map<String, dynamic>> _dataFuture;
   final ReviewService _reviewService = ReviewService();
   final WishlistService _wishlistService = WishlistService();
+  final CartService _cartService = CartService();
+  final CouponService _couponService = CouponService();
+  
+  late Future<Map<String, dynamic>> _dataFuture;
+  late Future<List<Coupon>> _couponsFuture;
+
   bool _isAddingToCart = false;
   bool _isWishlisted = false;
   bool _isLoadingWishlist = true;
@@ -35,26 +40,32 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   void initState() {
     super.initState();
     _dataFuture = _fetchPageData();
+    _couponsFuture = Future.value([]); 
   }
 
   Future<Map<String, dynamic>> _fetchPageData() async {
-    final results = await Future.wait([
-      _fetchProductDetails(),
-      _reviewService.getReviewsForProduct(widget.productId),
-      _wishlistService.isProductWishlisted(widget.productId),
-    ]);
-    
-    if (mounted) {
-      setState(() {
-        _isWishlisted = results[2] as bool;
-        _isLoadingWishlist = false;
-      });
-    }
+    try {
+      final results = await Future.wait([
+        _fetchProductDetails(),
+        _reviewService.getReviewsForProduct(widget.productId),
+        _wishlistService.isProductWishlisted(widget.productId),
+      ]);
+      
+      final productData = results[0] as Map<String, dynamic>;
+      
+      if (mounted && productData['seller_id'] != null) {
+        setState(() {
+          _isWishlisted = results[2] as bool;
+          _isLoadingWishlist = false;
+          _couponsFuture = _couponService.fetchCouponsBySeller(productData['seller_id']);
+        });
+      }
 
-    return {
-      'product': results[0] as Map<String, dynamic>,
-      'reviews': results[1] as List<Map<String, dynamic>>,
-    };
+      return { 'product': productData, 'reviews': results[1] as List<Map<String, dynamic>> };
+    } catch (e) {
+      debugPrint("Error fetching page data: $e");
+      throw Exception("Could not load product details.");
+    }
   }
 
   Future<Map<String, dynamic>> _fetchProductDetails() {
@@ -70,11 +81,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       } else {
         await _wishlistService.addToWishlist(widget.productId);
       }
-      if (mounted) {
-        setState(() => _isWishlisted = !_isWishlisted);
-      }
+      if (mounted) setState(() => _isWishlisted = !_isWishlisted);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoadingWishlist = false);
     }
@@ -87,25 +96,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Future<void> _addToCart() async { 
     setState(() => _isAddingToCart = true); 
     try { 
-      final userId = supabase.auth.currentUser!.id;
-      final existingCartItem = await supabase.from('cart').select().eq('buyer_id', userId).eq('product_id', widget.productId).maybeSingle();
-      if (existingCartItem != null) { 
-        final newQuantity = (existingCartItem['quantity'] as int) + 1;
-        await supabase.from('cart').update({'quantity': newQuantity}).eq('id', existingCartItem['id']);
-      } else { 
-        await supabase.from('cart').insert({'buyer_id': userId, 'product_id': widget.productId, 'quantity': 1});
-      }
-      if (mounted) { 
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Product added to cart!'), backgroundColor: Colors.green));
-      }
+      await _cartService.addItemToCart(widget.productId);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Product added to cart!'), backgroundColor: Colors.green));
     } catch(e) { 
-      if (mounted) { 
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to add product: ${e.toString()}"), backgroundColor: Colors.red)); 
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to add product: ${e.toString()}"), backgroundColor: Colors.red)); 
     } finally { 
-      if(mounted) { 
-        setState(() => _isAddingToCart = false);
-      }
+      if(mounted) setState(() => _isAddingToCart = false);
     }
   }
   
@@ -146,9 +142,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       floating: false, pinned: true,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       elevation: 1,
-      leading: const Padding(
-        padding: EdgeInsets.all(8.0),
-        child: CircleAvatar(backgroundColor: Colors.white, child: BackButton(color: Colors.black)),
+      leading: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: CircleAvatar(backgroundColor: Colors.white, child: BackButton(color: Colors.black.withAlpha(150))), // ✅ FIX
       ),
       actions: [
         Padding(
@@ -173,8 +169,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Widget _buildImageGallery(List<dynamic>? imageUrls) {
     final images = imageUrls?.map((e) => e.toString()).toList() ?? [];
-    if (images.isEmpty) return const Center(child: Icon(Icons.image_not_supported, color: Colors.grey, size: 60));
+    if (images.isEmpty) return Center(child: Icon(Icons.image_not_supported, color: Colors.grey[400], size: 80));
     return Stack(
+      alignment: Alignment.bottomCenter,
       children: [
         PageView.builder(
           itemCount: images.length,
@@ -182,22 +179,21 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           itemBuilder: (context, index) => Image.network(
             images[index], 
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 60)),
+            errorBuilder: (_, __, ___) => Center(child: Icon(Icons.broken_image, color: Colors.grey[400], size: 80)),
           ),
         ),
         if (images.length > 1)
-          Positioned(
-            bottom: 10, left: 0, right: 0,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16.0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: images.map((url) {
-                int index = images.indexOf(url);
+              children: images.asMap().entries.map((entry) {
                 return Container(
                   width: 8.0, height: 8.0,
-                  margin: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 2.0),
+                  margin: const EdgeInsets.symmetric(horizontal: 4.0),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _currentImageIndex == index ? const Color.fromRGBO(0, 0, 0, 0.9) : const Color.fromRGBO(0, 0, 0, 0.4),
+                    color: _currentImageIndex == entry.key ? Colors.white : Colors.white.withAlpha(128), // ✅ FIX
                   ),
                 );
               }).toList(),
@@ -232,6 +228,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             Text(product['name'] ?? 'No Name', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Text('₹${product['price'] ?? 0}', style: TextStyle(fontSize: 28, color: Theme.of(context).primaryColor, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 16),
+            _buildCouponsSection(),
             const Divider(height: 40),
             Text('Description', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
@@ -253,7 +251,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Widget _buildReviewsSliver(List<Map<String, dynamic>> reviews) {
     if (reviews.isEmpty) {
       return const SliverToBoxAdapter(
-        // ✅ FINAL FIX: Added 'const' to fix the linter warning.
         child: Padding(
           padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: Text('No reviews yet. Be the first to write one!'),
@@ -271,7 +268,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(children: [_buildStarRating((review['rating'] as int).toDouble()),
+              Row(children: [_buildStarRating((review['rating'] as num).toDouble()),
                 const Spacer(),
                 Text(DateFormat.yMMMd().format(DateTime.parse(review['created_at']))),
               ]),
@@ -291,7 +288,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       if (reviewCount > 0) Text('($reviewCount ${reviewCount > 1 ? 'reviews' : 'review'})', style: TextStyle(color: Colors.grey[600])),
       const Spacer(), _buildStockStatusChip(stockQty)]);}
   
-  Widget _buildStarRating(double rating) { return Row(mainAxisSize: MainAxisSize.min, children: List.generate(5, (index) => Icon(index < rating.round() ? Icons.star : Icons.star_border, color: Colors.amber, size: 20)));}
+  Widget _buildStarRating(double rating) { return Row(mainAxisSize: MainAxisSize.min, children: List.generate(5, (index) => Icon(index < rating.floor() ? Icons.star : (index < rating ? Icons.star_half : Icons.star_border), color: Colors.amber, size: 20)));}
   
   Widget _buildStockStatusChip(int quantity) {
     if (quantity > 5) {return const Chip(label: Text('In Stock'), backgroundColor: Colors.green, labelStyle: TextStyle(color: Colors.white));} 
@@ -301,14 +298,76 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Widget _buildBottomBar(int quantity) { final bool canAddToCart = quantity > 0 && !_isAddingToCart;
     return Container(
       padding: const EdgeInsets.all(16.0).copyWith(top: 8),
-      decoration: BoxDecoration(color: Theme.of(context).scaffoldBackgroundColor, border: Border(top: BorderSide(color: Colors.grey.shade300))),
-      child: ElevatedButton.icon(
-        onPressed: canAddToCart ? _addToCart : null, 
-        icon: _isAddingToCart ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.add_shopping_cart, color: Colors.white),
-        label: Text(_isAddingToCart ? 'Adding...' : (quantity > 0 ? 'Add to Cart' : 'Out of Stock'), style: const TextStyle(color: Colors.white)),
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 16), textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          backgroundColor: const Color(0xFF267873), disabledBackgroundColor: Colors.grey, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+      decoration: BoxDecoration(color: Theme.of(context).scaffoldBackgroundColor, boxShadow: [BoxShadow(color: Colors.black.withAlpha(12), blurRadius: 10)]),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: canAddToCart ? _addToCart : null, 
+          icon: _isAddingToCart ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.add_shopping_cart, color: Colors.white),
+          label: Text(_isAddingToCart ? 'Adding...' : (quantity > 0 ? 'Add to Cart' : 'Out of Stock'), style: const TextStyle(color: Colors.white)),
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 16), textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            backgroundColor: const Color(0xFF267873), disabledBackgroundColor: Colors.grey, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCouponsSection() {
+    return FutureBuilder<List<Coupon>>(
+      future: _couponsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+           return const Text("Checking for offers...");
+        }
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const SizedBox.shrink(); 
+        }
+        final coupons = snapshot.data!;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Available Offers', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            // ✅ FIX
+            ...coupons.map((coupon) => _buildCouponTile(coupon)),
+          ],
+        );
+      },
+    );
+  }
+  
+  Widget _buildCouponTile(Coupon coupon) {
+    String discountText = coupon.discountType == 'percentage'
+        ? '${coupon.discountValue.toStringAsFixed(0)}% OFF'
+        : '₹${coupon.discountValue.toStringAsFixed(0)} OFF';
+        
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(border: Border.all(color: Colors.green.shade200), borderRadius: BorderRadius.circular(8)),
+      child: Row(
+        children: [
+          const Icon(Icons.local_offer, color: Colors.green),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(discountText, style: const TextStyle(fontWeight: FontWeight.bold)),
+                if (coupon.minPurchaseAmount > 0)
+                  Text('on orders above ₹${coupon.minPurchaseAmount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+          ),
+          TextButton(
+            child: const Text('COPY'),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: coupon.code));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Coupon code copied!'), backgroundColor: Colors.green));
+            },
+          ),
+        ],
       ),
     );
   }

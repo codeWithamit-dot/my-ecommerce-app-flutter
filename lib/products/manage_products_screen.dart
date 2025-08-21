@@ -1,7 +1,8 @@
-// lib/products/manage_products_screen.dart
+// Path: lib/products/manage_products_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:my_ecommerce_app/main.dart';
+import 'package:my_ecommerce_app/screens/promotions/manage_coupons_screen.dart'; // ✅
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'edit_product_screen.dart';
 
@@ -13,29 +14,51 @@ class ManageProductsScreen extends StatefulWidget {
 }
 
 class _ManageProductsScreenState extends State<ManageProductsScreen> {
-  // ✅ FIX #1: Future ko State variable banaya, taaki setState() se use refresh kar sakein.
-  late Future<List<Map<String, dynamic>>> _productsFuture;
+  bool _isLoading = true;
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _allProducts = [];
+  List<Map<String, dynamic>> _filteredProducts = [];
 
   @override
   void initState() {
     super.initState();
-    // initState mein hi future ko pehli baar call kiya
-    _productsFuture = _fetchSellerProducts();
+    _fetchSellerProducts();
+    _searchController.addListener(_filterProducts);
   }
 
-  Future<List<Map<String, dynamic>>> _fetchSellerProducts() {
-    final userId = supabase.auth.currentUser!.id;
-    return supabase
-        .from('products')
-        .select()
-        .eq('seller_id', userId)
-        .order('created_at', ascending: false);
+  Future<void> _fetchSellerProducts() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final userId = supabase.auth.currentUser!.id;
+      final response = await supabase
+          .from('products')
+          .select()
+          .eq('seller_id', userId)
+          .order('created_at', ascending: false);
+      
+      if (mounted) {
+        setState(() {
+          _allProducts = List<Map<String, dynamic>>.from(response);
+          _filteredProducts = List<Map<String, dynamic>>.from(response);
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error fetching products: ${e.toString()}'), backgroundColor: Colors.red));
+      }
+    }
   }
   
-  // Naya refresh function
-  Future<void> _refreshProducts() async {
+  void _filterProducts() {
+    final query = _searchController.text.toLowerCase();
     setState(() {
-      _productsFuture = _fetchSellerProducts();
+      _filteredProducts = _allProducts.where((product) {
+        final productName = product['name'] as String? ?? '';
+        return productName.toLowerCase().contains(query);
+      }).toList();
     });
   }
 
@@ -52,62 +75,100 @@ class _ManageProductsScreenState extends State<ManageProductsScreen> {
       ),
     );
 
-    if (shouldDelete != true) return;
+    if (shouldDelete != true || !mounted) return;
 
     try {
       await supabase.from('products').delete().eq('id', productId);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Product deleted successfully'), backgroundColor: Colors.green));
-        _refreshProducts(); // List ko refresh karo
-      }
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Product deleted successfully'), backgroundColor: Colors.green));
+      _fetchSellerProducts();
     } on PostgrestException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.message}')));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.message}'), backgroundColor: Colors.red));
     }
   }
   
   @override
+  void dispose() {
+    _searchController.removeListener(_filterProducts);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFE0F7F5),
-      body: SafeArea(
-        // ✅ FIX #2: RefreshIndicator ko body ka sabse upar ka widget banaya.
-        child: RefreshIndicator(
-          onRefresh: _refreshProducts,
-          child: FutureBuilder<List<Map<String, dynamic>>>(
-            future: _productsFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                return Center(child: Text('Error: ${snapshot.error}'));
-              }
-
-              final products = snapshot.data ?? [];
-              if (products.isEmpty) {
-                return CustomScrollView(slivers: [
-                  SliverFillRemaining(child: Center(
-                    child: Text("You haven't added any products yet.\nTap the '+' icon to add one!",
-                        textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey[600]))))]);
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: products.length,
-                itemBuilder: (context, index) {
-                  return _buildProductCard(products[index]);
-                },
+      appBar: AppBar(
+        title: const Text('Manage Products'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.campaign_outlined), // Promotions / Coupons Icon
+            tooltip: 'Manage Coupons',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ManageCouponsScreen())
               );
             },
-          ),
+          )
+        ],
+      ),
+      backgroundColor: const Color(0xFFE0F7F5),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: Colors.white,
+                  labelText: 'Search Your Products',
+                  hintText: 'Enter product name...',
+                  prefixIcon: const Icon(Icons.search),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(icon: const Icon(Icons.clear), onPressed: () => _searchController.clear())
+                    : null,
+                ),
+              ),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _fetchSellerProducts,
+                child: _buildBodyContent(),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // --- UI Helper Widgets ---
+  Widget _buildBodyContent() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_allProducts.isEmpty) {
+      return CustomScrollView(slivers: [
+        SliverFillRemaining(child: Center(
+          child: Text("You haven't added any products yet.",
+              textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey[600]))))]);
+    }
+    if (_filteredProducts.isEmpty) {
+      return Center(child: Text('No products found for "${_searchController.text}"', 
+        style: TextStyle(fontSize: 16, color: Colors.grey[600])));
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      itemCount: _filteredProducts.length,
+      itemBuilder: (context, index) {
+        return _buildProductCard(_filteredProducts[index]);
+      },
+    );
+  }
   
   Widget _buildProductCard(Map<String, dynamic> product) {
     final imageUrls = product['image_urls'] as List?;
@@ -155,8 +216,8 @@ class _ManageProductsScreenState extends State<ManageProductsScreen> {
               onSelected: (value) async {
                 if (value == 'edit') {
                   final wasUpdated = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => EditProductScreen(product: product)));
-                  if (wasUpdated == true) {
-                    _refreshProducts();
+                  if (wasUpdated == true && mounted) {
+                    _fetchSellerProducts();
                   }
                 } else if (value == 'delete') {
                   _deleteProduct(product['id']);
